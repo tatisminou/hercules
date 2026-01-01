@@ -3,17 +3,81 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // This rule allows anyone with your Firestore database reference to view, edit,
-    // and delete all data in your Firestore database. It is useful for getting
-    // started, but it is configured to expire after 30 days because it
-    // leaves your app open to attackers. At that time, all client
-    // requests to your Firestore database will be denied.
-    //
-    // Make sure to write security rules for your app before that time, or else
-    // all client requests to your Firestore database will be denied until you Update
-    // your rules
+    // Helper function: Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function: Check if user owns the document
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Helper function: Validate required fields exist
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // User profiles - each user can only access their own profile
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      // Holdings subcollection - references stocks by stockId
+      match /holdings/{holdingId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && hasRequiredFields(['stockId', 'shares', 'createdAt']);
+        allow update: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
+
+      // Alerts subcollection - references stocks by stockId
+      match /alerts/{alertId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && hasRequiredFields(['stockId', 'type', 'threshold', 'createdAt']);
+        allow update: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
+
+      // Settings subcollection
+      match /settings/{settingId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Transactions/trade history (immutable audit trail) - references stocks by stockId
+      match /transactions/{transactionId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && hasRequiredFields(['stockId', 'type', 'shares', 'price', 'date']);
+        // No update or delete - transactions are immutable
+      }
+    }
+
+    // Stocks registry - master list of all tracked stocks (GUID-based IDs)
+    // Readable by authenticated users, writable only via admin SDK
+    match /stocks/{stockId} {
+      allow read: if isAuthenticated();
+      // Write only via admin SDK (Firebase Functions)
+      allow write: if false;
+    }
+
+    // Price cache - keyed by stockId, readable by authenticated users
+    match /priceCache/{stockId} {
+      allow read: if isAuthenticated();
+      // Write only via admin SDK (Firebase Functions)
+      allow write: if false;
+    }
+
+    // System config - read only for authenticated users
+    match /config/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // Deny all other access by default
     match /{document=**} {
-      allow read, write: if request.time < timestamp.date(2026, 1, 30);
+      allow read, write: if false;
     }
   }
 }
