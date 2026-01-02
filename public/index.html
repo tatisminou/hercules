@@ -200,18 +200,23 @@
   </div>
 
   <script>
-    // Firebase configuration
-    const firebaseConfig = {
-      apiKey: "xxx",
-      authDomain: "tuplebox-hercules.firebaseapp.com",
-      projectId: "tuplebox-hercules",
-      storageBucket: "tuplebox-hercules.firebasestorage.app",
-      messagingSenderId: "144957092094",
-      appId: "1:144957092094:web:0986ef094392481282b5af"
-    };
+    // Firebase will be initialized after fetching config from Firebase Hosting
+    let firebaseInitialized = false;
 
-    // Initialize Firebase
-    firebase.initializeApp(firebaseConfig);
+    async function initFirebase() {
+      if (firebaseInitialized) return;
+      try {
+        // Firebase Hosting auto-config (works only on Firebase Hosting)
+        const res = await fetch('/__/firebase/init.json');
+        const config = await res.json();
+        firebase.initializeApp(config);
+        firebaseInitialized = true;
+      } catch (e) {
+        console.error('Failed to load Firebase config:', e);
+        // Fallback for local development - you'll need to set this manually
+        throw new Error('Firebase config not available. Deploy to Firebase Hosting or configure locally.');
+      }
+    }
 
     function app() {
       return {
@@ -243,16 +248,22 @@
         addingStock: false,
 
         // Auth methods
-        initAuth() {
-          firebase.auth().onAuthStateChanged(async (user) => {
-            this.user = user;
-            if (user) {
-              this.idToken = await user.getIdToken();
-            } else {
-              this.idToken = null;
-            }
+        async initAuth() {
+          try {
+            await initFirebase();
+            firebase.auth().onAuthStateChanged(async (user) => {
+              this.user = user;
+              if (user) {
+                this.idToken = await user.getIdToken();
+              } else {
+                this.idToken = null;
+              }
+              this.authLoading = false;
+            });
+          } catch (e) {
+            console.error('Firebase init failed:', e);
             this.authLoading = false;
-          });
+          }
         },
 
         async signIn() {
